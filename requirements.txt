@@ -1,0 +1,16 @@
+fastapi==0.139.2
+uvicorn==0.51.0
+python-multipart==0.0.32
+requests==2.33.1
+ultralytics==8.4.41
+opencv-python==4.13.0.92
+numpy==2.4.4
+scipy==1.17.1
+matplotlib==3.10.9
+torch==2.11.0+cpu
+torchaudio==2.11.0+cpu
+torchvision==0.26.0+cpu
+pandas==3.0.3
+python-dotenv==1.2.2
+pydantic==2.13.4
+pydantic-core==2.46.4
