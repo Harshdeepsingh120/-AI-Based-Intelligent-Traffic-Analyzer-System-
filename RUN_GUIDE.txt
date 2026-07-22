@@ -1,0 +1,106 @@
+## Prerequisites
+- **Operating System**: Windows 10/11 (run.bat is Windows‑only). macOS/Linux users can follow the manual steps.
+- **Python**: >=3.11 (tested with 3.12).
+- **Git** (optional, only if cloning the repo).
+- **pip** (comes with Python) and **virtualenv** (standard library `venv`).
+
+## One‑time Setup
+1. **Clone / download the project**
+   ```bash
+   git clone https://github.com/your-repo/ai-traffic-analyzer.git
+   cd ai-traffic-analyzer
+   ```
+   *If you already have the folder, skip this step.*
+
+2. **Create and activate a virtual environment**
+   ```bash
+   # Windows PowerShell
+   python -m venv .venv
+   .\\.venv\\Scripts\\Activate.ps1
+
+   # macOS / Linux
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Install exact dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Download YOLOv8 model weights** (`yolov8n.pt`) and place them in the project root:
+   ```bash
+   # Windows PowerShell or any shell with wget/curl
+   curl -L -o yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.4.41/yolov8n.pt
+   ```
+   *If `curl` is unavailable, download manually from the Ultralytics releases page and copy the file to the project directory.*
+
+5. **Set Gemini API key (optional, for AI‑tier chatbot)**
+   - **Windows PowerShell**
+     ```powershell
+     $Env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+     ```
+   - **macOS / Linux**
+     ```bash
+     export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+     ```
+   - Or create a `.env` file in the project root containing:
+     ```
+     GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+     ```
+
+## Running the Application
+### Option A – One‑click (Windows only)
+```bash
+run.bat
+```
+The script will:
+1. Install any missing Python packages.
+2. Open your default browser at `http://localhost:8000`.
+3. Start the FastAPI server on port **8000**.
+
+### Option B – Manual (cross‑platform)
+```bash
+# Ensure the virtual environment is active
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+Open a browser and navigate to `http://localhost:8000`.
+
+## Running the Evaluation Suite (no web UI needed)
+```bash
+python evaluation.py
+```
+The script expects:
+- `traffic.mp4` (sample video) in the project root.
+- Ground‑truth annotation file `ground_truth.json` (or `base_gt.json`) also in the project root.
+It will print a compact metrics table and store any optional plots in the `eval_results/` directory.
+
+## Troubleshooting
+- **Port 8000 already in use**
+  ```bash
+  # Find the PID (Windows PowerShell)
+  netstat -ano | findstr :8000
+  # Then kill it
+  taskkill /PID <PID> /F
+  ```
+  *On macOS/Linux use `lsof -i :8000` and `kill -9 <PID>`.*
+
+- **Model weights not found**
+  Make sure `yolov8n.pt` exists in the same folder as `app.py`. The upload will fail with `Model file not found` otherwise.
+
+- **Gemini API key missing / invalid**
+  The chatbot will automatically fall back to the rule‑based tier, so the system still works. To enable AI responses, double‑check the environment variable name `GEMINI_API_KEY` and that the key is still valid.
+
+- **Video file not found / unsupported format**
+  Accepted extensions are `.mp4`, `.avi`, `.mov`. Ensure the file is correctly selected in the upload dialog and that the path does not contain special characters.
+
+- **Dependency errors**
+  If `pip install -r requirements.txt` fails, try upgrading `pip` first:
+  ```bash
+  python -m pip install --upgrade pip
+  ```
+  Then reinstall the requirements.
+
+---
+
+All commands are copy‑paste ready. After completing the steps above you should have a fully functional traffic analysis web dashboard.
