@@ -1,5 +1,6 @@
 # Large video files (too large for GitHub)
 *.mp4
+!static/demo.mp4
 *.avi
 *.mov
 *.mkv

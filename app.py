@@ -64,32 +64,17 @@ def read_root():
     """
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
-@app.post("/api/upload")
-def upload_video(file: UploadFile = File(...)):
+def _reset_and_start(video_path: str):
     """
-    Receives an uploaded video file and spawns the background processing thread.
+    Shared helper: cancels any active processing thread, resets global state,
+    and spawns a new background thread for the given video path.
     """
     global cancel_processing, processing_state
-    
-    # Check extension
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in [".mp4", ".avi", ".mov"]:
-        raise HTTPException(status_code=400, detail="Invalid video format. Supported: mp4, avi, mov.")
 
-    # Cancel any active running thread
     cancel_processing.set()
-    time.sleep(0.5)  # Let the old thread shut down
+    time.sleep(0.5)  # Let the old thread shut down gracefully
     cancel_processing.clear()
 
-    # Save uploaded file
-    video_path = os.path.join(UPLOAD_DIR, f"target_video{ext}")
-    try:
-        with open(video_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {e}")
-
-    # Reset state
     processing_state = {
         "status": "processing",
         "progress": 0.0,
@@ -111,12 +96,46 @@ def upload_video(file: UploadFile = File(...)):
         "frame_b64": ""
     }
 
-    # Spawn thread
     thread = threading.Thread(target=process_video_thread, args=(video_path,))
     thread.daemon = True
     thread.start()
 
+
+@app.post("/api/upload")
+def upload_video(file: UploadFile = File(...)):
+    """
+    Receives an uploaded video file and spawns the background processing thread.
+    """
+    # Check extension
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".mp4", ".avi", ".mov"]:
+        raise HTTPException(status_code=400, detail="Invalid video format. Supported: mp4, avi, mov.")
+
+    # Save uploaded file
+    video_path = os.path.join(UPLOAD_DIR, f"target_video{ext}")
+    try:
+        with open(video_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {e}")
+
+    _reset_and_start(video_path)
     return {"message": "Upload successful. Video analysis started.", "status": "processing"}
+
+
+@app.post("/api/demo")
+def start_demo():
+    """
+    Triggers analysis on the bundled demo clip (static/demo.mp4).
+    Called automatically by the frontend on page load so visitors see
+    the system running without needing to upload anything.
+    """
+    demo_path = os.path.join(STATIC_DIR, "demo.mp4")
+    if not os.path.exists(demo_path):
+        raise HTTPException(status_code=404, detail="Demo video not found on server.")
+
+    _reset_and_start(demo_path)
+    return {"message": "Demo analysis started.", "status": "processing"}
 
 @app.get("/api/status")
 def get_status():

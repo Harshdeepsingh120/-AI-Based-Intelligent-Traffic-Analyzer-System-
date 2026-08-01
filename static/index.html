@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Traffic Analyzer - Engineering Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="stylesheet" href="/static/style.css?v=3">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="dashboard-container">
@@ -25,6 +26,10 @@
                 <div class="card viewport-card">
                     <div class="card-header">
                         <h2>Live Analysis Feed</h2>
+                        <div class="mode-tabs">
+                            <button class="mode-tab active" id="tab-demo">&#9654; Demo</button>
+                            <button class="mode-tab" id="tab-upload">&#8679; Upload</button>
+                        </div>
                         <span class="badge" id="status-badge">Idle</span>
                     </div>
                     <div class="video-container" id="video-container">
@@ -38,6 +43,35 @@
                         
                         <!-- LIVE FEED CANVAS -->
                         <img id="live-feed" src="" alt="Analyzed Frame Stream" style="display: none;">
+
+                        <!-- RESULTS SCREEN — shown after analysis completes -->
+                        <div id="results-screen" style="display: none;">
+                            <div class="results-header">
+                                <div class="results-title">&#10003; Analysis Complete</div>
+                                <div class="results-total-badge">
+                                    <span id="results-total-count">0</span> vehicles detected
+                                </div>
+                            </div>
+                            <div class="results-charts">
+                                <div class="results-chart-block">
+                                    <div class="results-chart-label">Class Breakdown</div>
+                                    <canvas id="chart-breakdown"></canvas>
+                                </div>
+                                <div class="results-chart-block">
+                                    <div class="results-chart-label">Density Over Time</div>
+                                    <canvas id="chart-density"></canvas>
+                                </div>
+                            </div>
+                            <button class="results-action-btn" id="btn-analyze-another">&#8635; Analyze Another Video</button>
+                        </div>
+
+                        <!-- ERROR SCREEN — shown on failed analysis -->
+                        <div id="error-screen" style="display: none;">
+                            <div class="error-icon">&#9888;</div>
+                            <div class="error-title">Analysis Failed</div>
+                            <p class="error-message" id="error-message-text">An unknown error occurred.</p>
+                            <button class="results-action-btn" id="btn-error-return">&#8617; Return to Upload</button>
+                        </div>
                     </div>
                     <!-- PROGRESS BAR -->
                     <div class="progress-container" id="progress-container" style="display: none;">
