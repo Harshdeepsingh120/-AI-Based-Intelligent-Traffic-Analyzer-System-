@@ -5,10 +5,11 @@ import cv2
 import time
 import shutil
 import threading
+import asyncio
 import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from ultralytics import YOLO
 from tracker import Sort
@@ -48,6 +49,18 @@ processing_state = {
     "error_message": "",
     "frame_b64": ""          # base64-encoded JPEG — no file I/O needed
 }
+
+# In-memory cache for demo frames to eliminate disk read & JSON parsing on every demo request
+GLOBAL_DEMO_CACHE = None
+
+def load_demo_cache(cache_path: str):
+    global GLOBAL_DEMO_CACHE
+    if GLOBAL_DEMO_CACHE is None:
+        if not os.path.exists(cache_path):
+            return None
+        with open(cache_path, "r", encoding="utf-8") as f:
+            GLOBAL_DEMO_CACHE = json.load(f)
+    return GLOBAL_DEMO_CACHE
 
 # Cancel flag for background processing thread
 cancel_processing = threading.Event()
@@ -186,16 +199,40 @@ def get_status():
     """
     return processing_state
 
+@app.get("/api/stream")
+async def stream_status():
+    """
+    Server-Sent Events (SSE) endpoint to push real-time frame updates directly
+    to the frontend without polling overhead.
+    """
+    async def event_generator():
+        last_frame = -1
+        last_status = None
+        while True:
+            current_frame = processing_state.get("current_frame", 0)
+            status = processing_state.get("status", "idle")
+
+            if current_frame != last_frame or status != last_status:
+                last_frame = current_frame
+                last_status = status
+                payload = json.dumps(processing_state)
+                yield f"data: {payload}\n\n"
+
+                if status in ["completed", "failed"]:
+                    break
+            await asyncio.sleep(0.04)  # ~25Hz check for instant smooth stream
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 def play_cached_demo_thread(cache_path: str):
     """
-    Background thread replaying pre-processed demo output from demo_cache.json.
-    Paces playback frame-by-frame at ~16 FPS to update UI and chatbot state smoothly.
+    Background thread replaying pre-processed demo output from memory/demo_cache.json.
+    Paces playback frame-by-frame smoothly.
     """
     global processing_state, cancel_processing, chatbot_instance
 
     try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            cached_frames = json.load(f)
+        cached_frames = load_demo_cache(cache_path)
     except Exception as e:
         processing_state["status"] = "failed"
         processing_state["error_message"] = f"Failed to read demo cache: {e}"

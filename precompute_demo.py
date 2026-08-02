@@ -157,7 +157,9 @@ def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="stati
         avg_speed_l = float(np.mean(speeds_l)) if speeds_l else 0.0
         avg_speed_r = float(np.mean(speeds_r)) if speeds_r else 0.0
 
-        ok, buf = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 78])
+        # Resize for low network payload & fast rendering on Render
+        annotated_resized = cv2.resize(annotated, (640, 360), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode('.jpg', annotated_resized, [cv2.IMWRITE_JPEG_QUALITY, 55])
         frame_b64 = base64.b64encode(buf).decode('utf-8') if ok else ""
 
         progress = round((frame_number / total_frames) * 100, 1) if total_frames > 0 else 0

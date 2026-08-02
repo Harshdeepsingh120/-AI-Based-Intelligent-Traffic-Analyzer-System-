@@ -1,4 +1,4 @@
-﻿document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
     // -- ELEMENT REFS --
     const uploadZone        = document.getElementById("upload-zone");
     const fileInput         = document.getElementById("file-input");
@@ -191,37 +191,68 @@
         xhr.send(formData);
     }
 
-    // -- POLLING STATUS LOOP --
+    // -- REAL-TIME STREAMING & POLLING LOOP --
+    let evtSource = null;
+
     function startStatusPolling() {
-        if (statusInterval) clearInterval(statusInterval);
+        if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+        if (evtSource) { evtSource.close(); evtSource = null; }
         densityTimeSeries = [];
 
+        function handleStateUpdate(state) {
+            updateDashboard(state);
+
+            if (state.progress > 0) {
+                densityTimeSeries.push({
+                    pct:   state.progress,
+                    total: state.left_density + state.right_density
+                });
+            }
+
+            if (state.status === "completed") {
+                if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+                if (evtSource) { evtSource.close(); evtSource = null; }
+                setTabsDisabled(false);
+                showResults(state);
+            } else if (state.status === "failed") {
+                if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+                if (evtSource) { evtSource.close(); evtSource = null; }
+                setTabsDisabled(false);
+                showError(state.error_message || "An unknown error occurred during analysis.");
+            }
+        }
+
+        // Use SSE EventSource for real-time push streaming (0 HTTP round-trip latency)
+        if (window.EventSource) {
+            evtSource = new EventSource("/api/stream");
+            evtSource.onmessage = (event) => {
+                try {
+                    const state = JSON.parse(event.data);
+                    handleStateUpdate(state);
+                } catch (e) {
+                    console.error("SSE parse error:", e);
+                }
+            };
+            evtSource.onerror = (err) => {
+                console.warn("SSE stream closed or error, falling back to polling if active", err);
+                if (evtSource) { evtSource.close(); evtSource = null; }
+                if (!statusInterval) {
+                    startFallbackPolling(handleStateUpdate);
+                }
+            };
+        } else {
+            startFallbackPolling(handleStateUpdate);
+        }
+    }
+
+    function startFallbackPolling(handleStateUpdate) {
+        if (statusInterval) return;
         statusInterval = setInterval(() => {
             fetch("/api/status")
             .then(res => res.json())
-            .then(state => {
-                updateDashboard(state);
-
-                // Collect density sample for the results line chart
-                if (state.progress > 0) {
-                    densityTimeSeries.push({
-                        pct:   state.progress,
-                        total: state.left_density + state.right_density
-                    });
-                }
-
-                if (state.status === "completed") {
-                    clearInterval(statusInterval);
-                    setTabsDisabled(false);
-                    showResults(state);
-                } else if (state.status === "failed") {
-                    clearInterval(statusInterval);
-                    setTabsDisabled(false);
-                    showError(state.error_message || "An unknown error occurred during analysis.");
-                }
-            })
+            .then(state => handleStateUpdate(state))
             .catch(err => { console.error("Polling error:", err); });
-        }, 300);
+        }, 200);
     }
 
     // -- DASHBOARD UPDATE --
