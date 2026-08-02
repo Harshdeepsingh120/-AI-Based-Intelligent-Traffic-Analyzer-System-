@@ -1,4 +1,5 @@
 import os
+import json
 import base64
 import cv2
 import time
@@ -101,6 +102,43 @@ def _reset_and_start(video_path: str):
     thread.start()
 
 
+def _reset_and_start_cached(cache_path: str):
+    """
+    Cancels any active processing thread, resets global state,
+    and spawns a cached demo playback thread.
+    """
+    global cancel_processing, processing_state
+
+    cancel_processing.set()
+    time.sleep(0.3)
+    cancel_processing.clear()
+
+    processing_state = {
+        "status": "processing",
+        "progress": 0.0,
+        "current_frame": 0,
+        "total_frames": 0,
+        "left_density": 0,
+        "right_density": 0,
+        "car_count": 0,
+        "bus_count": 0,
+        "truck_count": 0,
+        "person_count": 0,
+        "motorcycle_count": 0,
+        "avg_speed_left": 0.0,
+        "avg_speed_right": 0.0,
+        "signal_state": "GREEN_LEFT",
+        "signal_timer": 10.0,
+        "processed_count": 0,
+        "error_message": "",
+        "frame_b64": ""
+    }
+
+    thread = threading.Thread(target=play_cached_demo_thread, args=(cache_path,))
+    thread.daemon = True
+    thread.start()
+
+
 @app.post("/api/upload")
 def upload_video(file: UploadFile = File(...)):
     """
@@ -126,16 +164,20 @@ def upload_video(file: UploadFile = File(...)):
 @app.post("/api/demo")
 def start_demo():
     """
-    Triggers analysis on the bundled demo clip (static/demo.mp4).
-    Called automatically by the frontend on page load so visitors see
-    the system running without needing to upload anything.
+    Triggers analysis on the bundled demo clip. Uses pre-processed cache (static/demo_cache.json)
+    if available for near-instant execution on CPU-constrained servers (e.g. Render free tier).
     """
+    cache_path = os.path.join(STATIC_DIR, "demo_cache.json")
     demo_path = os.path.join(STATIC_DIR, "demo.mp4")
-    if not os.path.exists(demo_path):
-        raise HTTPException(status_code=404, detail="Demo video not found on server.")
 
-    _reset_and_start(demo_path)
-    return {"message": "Demo analysis started.", "status": "processing"}
+    if os.path.exists(cache_path):
+        _reset_and_start_cached(cache_path)
+        return {"message": "Cached demo analysis started.", "status": "processing"}
+    elif os.path.exists(demo_path):
+        _reset_and_start(demo_path)
+        return {"message": "Demo analysis started.", "status": "processing"}
+    else:
+        raise HTTPException(status_code=404, detail="Demo video not found on server.")
 
 @app.get("/api/status")
 def get_status():
@@ -143,6 +185,49 @@ def get_status():
     Returns current analysis progress and active metrics.
     """
     return processing_state
+
+def play_cached_demo_thread(cache_path: str):
+    """
+    Background thread replaying pre-processed demo output from demo_cache.json.
+    Paces playback frame-by-frame at ~16 FPS to update UI and chatbot state smoothly.
+    """
+    global processing_state, cancel_processing, chatbot_instance
+
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cached_frames = json.load(f)
+    except Exception as e:
+        processing_state["status"] = "failed"
+        processing_state["error_message"] = f"Failed to read demo cache: {e}"
+        return
+
+    if not cached_frames:
+        processing_state["status"] = "failed"
+        processing_state["error_message"] = "Demo cache file is empty."
+        return
+
+    for frame_state in cached_frames:
+        if cancel_processing.is_set():
+            return
+
+        processing_state.update(frame_state)
+
+        chatbot_instance.update_state(
+            left_count=frame_state.get("left_density", 0),
+            right_count=frame_state.get("right_density", 0),
+            signal_state=frame_state.get("signal_state", "GREEN_LEFT"),
+            remaining_time=frame_state.get("signal_timer", 10.0),
+            avg_speed_l=frame_state.get("avg_speed_left", 0.0),
+            avg_speed_r=frame_state.get("avg_speed_right", 0.0),
+            total_vehicles=frame_state.get("processed_count", 0)
+        )
+
+        time.sleep(0.06)
+
+    if not cancel_processing.is_set():
+        processing_state["status"] = "completed"
+        processing_state["progress"] = 100.0
+
 
 @app.post("/api/chat")
 def chatbot_query(query_data: ChatQuery):
