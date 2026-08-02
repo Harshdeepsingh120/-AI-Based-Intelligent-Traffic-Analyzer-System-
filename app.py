@@ -222,7 +222,7 @@ def play_cached_demo_thread(cache_path: str):
             total_vehicles=frame_state.get("processed_count", 0)
         )
 
-        time.sleep(0.06)
+        time.sleep(0.14)  # ~7 FPS playback across 360 frames = ~50s total viewing duration
 
     if not cancel_processing.is_set():
         processing_state["status"] = "completed"

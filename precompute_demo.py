@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import gc
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -8,7 +9,12 @@ from tracker import Sort
 from speed_estimator import CameraCalibrator, SpeedEstimator
 from signal_control import SignalController
 
-def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="static/demo_cache.json"):
+try:
+    import torch
+except ImportError:
+    torch = None
+
+def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="static/demo_cache.json", batch_size=50):
     if not os.path.exists(video_path):
         print(f"Error: {video_path} not found.")
         return
@@ -42,7 +48,7 @@ def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="stati
 
     total_vehicles_processed = set()
     frame_number = 0
-    N_SKIP = 2
+    N_SKIP = 1  # Process every frame for smooth motion
 
     class_totals = {"car": 0, "motorcycle": 0, "bus": 0, "truck": 0, "person": 0}
     seen_track_ids = set()
@@ -93,6 +99,7 @@ def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="stati
                 )
                 if frame_number == 100:
                     calibrator.calibrate()
+            del results
         else:
             to_del = []
             for t, trk in enumerate(tracker.trackers):
@@ -153,7 +160,7 @@ def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="stati
         ok, buf = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 78])
         frame_b64 = base64.b64encode(buf).decode('utf-8') if ok else ""
 
-        progress = round((frame_number / total_frames) * 100, 1)
+        progress = round((frame_number / total_frames) * 100, 1) if total_frames > 0 else 0
 
         state_snapshot = {
             "status": "processing",
@@ -177,12 +184,21 @@ def precompute_demo_cache(video_path="static/demo.mp4", output_cache_path="stati
         }
         cached_frames.append(state_snapshot)
 
+        # Batch save to disk and garbage collect
+        if frame_number % batch_size == 0 or frame_number == total_frames:
+            temp_cache_path = output_cache_path + ".tmp"
+            with open(temp_cache_path, "w", encoding="utf-8") as f:
+                json.dump(cached_frames, f)
+            os.replace(temp_cache_path, output_cache_path)
+            print(f"Incremental batch saved: {frame_number}/{total_frames} frames ({progress}%) written to {output_cache_path}.", flush=True)
+            
+            gc.collect()
+            if torch and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
     cap.release()
-
-    with open(output_cache_path, "w", encoding="utf-8") as f:
-        json.dump(cached_frames, f)
-
-    print(f"Pre-processing complete. Saved {len(cached_frames)} cached frames to {output_cache_path}.")
+    print(f"Pre-processing complete. Total {len(cached_frames)} cached frames saved to {output_cache_path}.", flush=True)
 
 if __name__ == "__main__":
     precompute_demo_cache()
+
